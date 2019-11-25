@@ -3,11 +3,13 @@ import json
 import sys
 import os
 import time
+import pyperclip
 from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
 
+
 class Utils:
-    def getClass(self,path):
+    def getClass(self, path):
         if "/" in path:
             splitName = path.split("/")
             if (os.path.isdir(path)):
@@ -16,7 +18,7 @@ class Utils:
                 className = splitName[len(splitName) - 2]
             return className
 
-    def getClassForDeletedPath(self,path):
+    def getClassForDeletedPath(self, path):
         if "/" in path:
             splitName = path.split("/")
             if "." not in path:
@@ -25,13 +27,12 @@ class Utils:
                 className = splitName[len(splitName) - 2]
             return className
 
-
-    def getMemberValue(self,path):
-        if("/"  in path):
+    def getMemberValue(self, path):
+        if ("/" in path):
             splitPath = path.split("/")
-            return splitPath[len(splitPath)-1]
+            return splitPath[len(splitPath) - 1]
 
-    def getMemberName(self,path):
+    def getMemberName(self, path):
         if ("/" in path):
             nameParts = path.split("/")
             path = nameParts[len(nameParts) - 1]
@@ -39,7 +40,8 @@ class Utils:
             nameParts = path.split(".")
             path = nameParts[0]
         return path
-    def findClassIndex(self,parent,className):
+
+    def findClassIndex(self, parent, className):
         for i in range(len(parent)):
             memberClass = parent[i]
             if memberClass["name"] == className:
@@ -50,8 +52,10 @@ class Utils:
 class Templates:
     def __init__(self):
         self.utils = Utils()
-        self.invalidVariableNameSymbols = ["-","@","!","~","`","\"","#","$","%","^","&"
-            ,"*","(",")","+","=","{","[","}","]","|","\\",";",":","'","<",",",">",".","?","/"]
+        self.getLowercasedMemberName = lambda s: s[:1].lower() + s[1:] if s else ''
+        self.invalidVariableNameSymbols = ["-", "@", "!", "~", "`", "\"", "#", "$", "%", "^", "&"
+            , "*", "(", ")", "+", "=", "{", "[", "}", "]", "|", "\\", ";", ":", "'", "<", ",", ">", ".", "?", "/"]
+
     def getClassOpener(self, className):
         return "class " + className.capitalize() + " {\n"
 
@@ -60,10 +64,12 @@ class Templates:
 
     def getMemberDeclaration(self, memberName):
         formattedMemberName = self.utils.getMemberName(memberName)
+        memberName = memberName.replace("../","")
         for symbol in self.invalidVariableNameSymbols:
-            formattedMemberName.replace(symbol,"")
-        return "static final String " + formattedMemberName + " = \"" + memberName + "\"\n"
-
+            # print ("Replacing Symbol",symbol)
+            formattedMemberName = formattedMemberName.replace(symbol, "")
+            formattedMemberName = self.getLowercasedMemberName(formattedMemberName)
+        return "static final String " + formattedMemberName + " = \"" + memberName + "\";\n"
 
 
 
@@ -131,40 +137,45 @@ class StructureManager:
         self.assetManagerFile.write(content)
 
     def addMember(self, path):
+        pyperclip.copy(path)
         splitPath = path.split("/")
         print(splitPath)
         parent = splitPath[len(splitPath) - 2]
         member = splitPath[len(splitPath) - 1]
-        self.__addMember(parent, member)
 
-    def __addMember(self, paramClassName, memberName):
+        self.__addMember(parent, member,path)
+
+    def __addMember(self, paramClassName, memberName,memberValue):
         for i in range(len(self.rootElement)):
             className = self.rootElement[i]["name"]
             print("Iterating through", className)
             if paramClassName == className:
                 print("Class Found")
-                if self._addMemberTo(memberName, i):
+                if self._addMemberTo(memberName, i,memberValue):
                     self.save()
+                    print("Declaration copied to clipboard")
+                else:
+                    pyperclip.copy("")
                 break
 
-    def __isClassExisting(self,className):
+    def __isClassExisting(self, className):
         for memberClass in self.rootElement:
             if memberClass["name"] == className:
                 return True
         return False
 
         pass
-    def add(self,path):
+
+    def add(self, path):
         newPath = os.path.relpath(path)
         if os.path.isdir(newPath):
             self.addClass(newPath)
         else:
             self.addMember(newPath)
 
-
     def addClass(self, path):
         className = self.utils.getClass(path)
-        print ("Class name Found",className)
+        print ("Class name Found", className)
         print (self.rootElement)
         if not self.__isClassExisting(className):
             memberDeclaration = {
@@ -179,11 +190,11 @@ class StructureManager:
         else:
             print("Duplicate class.Skipping")
 
-    def _addMemberTo(self, memberName, atIndex):
+    def _addMemberTo(self, memberName, atIndex,memberValue):
         classmemebers = self.rootElement[atIndex]["members"]
         print("Current Member Count", len(classmemebers))
-        if (memberName not in classmemebers):
-            classmemebers.append(memberName)
+        if (memberValue not in classmemebers):
+            classmemebers.append(memberValue)
             print("Member Added. Length->", len(classmemebers))
             return True
         else:
@@ -191,7 +202,7 @@ class StructureManager:
             return False
 
     def delete(self, path):
-        print(repr(path),"Is Path",not "." in path)
+        print(repr(path), "Is Path", not "." in path)
         if not "." in path:
             print ("Class Deleted")
             className = self.utils.getClassForDeletedPath(path)
@@ -199,10 +210,10 @@ class StructureManager:
         else:
             className = self.utils.getClassForDeletedPath(path)
             memberName = self.utils.getMemberValue(path)
-            self.__deleteMember(className,memberName)
+            self.__deleteMember(className, memberName)
         self.save()
 
-    def __deleteMember(self,classname,membervalue):
+    def __deleteMember(self, classname, membervalue):
         classIndex = self.utils.findClassIndex(self.rootElement, classname)
         if classIndex == -1:
             print ("Class not found")
@@ -215,15 +226,13 @@ class StructureManager:
         except ValueError:
             print ("Value not found. You might have hanging declaration")
 
-
-    def __deleteClass(self,classname):
-        classIndex = self.utils.findClassIndex(self.rootElement,classname)
+    def __deleteClass(self, classname):
+        classIndex = self.utils.findClassIndex(self.rootElement, classname)
         if classIndex == -1:
             print ("Class not found. Ignoring event")
             return
         removedClass = self.rootElement.pop(classIndex)
-        print("Class Removed",removedClass["name"])
-
+        print("Class Removed", removedClass["name"])
 
     def modify(self, classname, membervalue):
 
@@ -256,17 +265,19 @@ class FileMonEventHandler(PatternMatchingEventHandler):
 def main():
     watchFolder = sys.argv[1]
     writeFolder = sys.argv[2]
+
     if (len(sys.argv) == 4):
         cmd = sys.argv[3]
         if cmd == "init":
-            currentdir = os.getcwd()
-            watchFolder = currentdir + watchFolder + "/"
-            writeFolder = currentdir + writeFolder + "/"
+            # currentdir = os.getcwd()
+            watchFolder = watchFolder + "/"
+            writeFolder = writeFolder + "/"
             if (not os.path.exists(watchFolder)):
                 os.mkdir(watchFolder)
             if (not os.path.exists(writeFolder)):
                 os.mkdir(writeFolder)
     completeWriteFolder = os.path.abspath(writeFolder) + "/"
+    os.chdir(writeFolder)
     relWatchFolder = os.path.relpath(watchFolder)
 
     print("Watching " + relWatchFolder)
